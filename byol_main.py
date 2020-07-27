@@ -25,7 +25,6 @@ def run_task(config):
     trainer.resume_model()
     start_epoch = trainer.start_epoch
 
-    trainer.switch_train()
     for epoch in range(start_epoch + 1, trainer.total_epochs + 1):
         trainer.train_epoch(epoch, printer=logging.info)
         trainer.save_checkpoint(epoch)
@@ -36,6 +35,6 @@ def main():
     run_task(config)
 
 if __name__ == "__main__":
-    print('Pytorch version: {}'.format(torch.__version__))
-    print('os environ: {}'.format(os.environ))
+    print(f'Pytorch version: {torch.__version__}')
+    print(f'os environ: {os.environ}')
     main()

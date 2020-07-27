@@ -3,14 +3,14 @@ import torch
 from torchvision import models
 from .mlp import MLP
 
-class ResNetwithProjection(torch.nn.Module):
+class EncoderwithProjection(torch.nn.Module):
     def __init__(self, config):
         super().__init__()
         # backbone
         pretrained = config['model']['backbone']['pretrained']
         net_name = config['model']['backbone']['type']
-        resnet = models.__dict__[net_name](pretrained=pretrained)
-        self.encoder = torch.nn.Sequential(*list(resnet.children())[:-1])
+        base_encoder = models.__dict__[net_name](pretrained=pretrained)
+        self.encoder = torch.nn.Sequential(*list(base_encoder.children())[:-1])
 
         # projection
         input_dim = config['model']['projection']['input_dim']

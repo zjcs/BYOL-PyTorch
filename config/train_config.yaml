@@ -15,15 +15,15 @@ model:
     output_dim: 256
 
 amp:
-  sync_bn: false
-  opt_level: "O1"
+  sync_bn: True
+  opt_level: "O0"
 
 data:
   use_local_dataloader: True
   image_dir: "/home/admin/workspace/shared/imagenet/"
   resize_size: 224
   data_workers: 8
-  train_batch_size: 64
+  train_batch_size: 128
   val_batch_size: 64
   dual_views: true
   # for oss

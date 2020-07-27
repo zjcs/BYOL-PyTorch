@@ -14,7 +14,7 @@ import apex
 from apex.parallel import DistributedDataParallel as DDP
 from apex import amp
 
-from model import ResNetwithProjection, Predictor
+from model import BYOLModel
 from optimizer.LARSSGD import LARS
 from data.imagenet_loader import ImageNetLoader
 from data.oss_imagenet_loader import OssImageLoader
@@ -96,12 +96,6 @@ class BYOLTrainer():
         self.lr_log_png = self.config['log']['lr_log_png'].format(self.time_stamp)
         self.lr_log_tool = log_tool(bucket=self.ckpt_bucket, log_path=self.lr_log_file)
 
-    def wrap_model(self, net, sync_bn=False):
-        if sync_bn:
-            net = apex.parallel.convert_syncbn_model(net)
-        net = net.to(self.device)
-        return net
-
     def construct_model(self):
         # get data instance
         self.stage = self.config['stage']
@@ -117,48 +111,30 @@ class BYOLTrainer():
         self.opt_level = self.config['amp']['opt_level']
         print(f"sync_bn: {self.sync_bn}")
 
-        print("init online network!")
-        online_network = ResNetwithProjection(self.config)
-        self.online_network = self.wrap_model(online_network, sync_bn=self.sync_bn)
-        print("init online network end!")
-
-        print("init predictor!")
-        predictor = Predictor(self.config)
-        self.predictor = self.wrap_model(predictor, sync_bn=self.sync_bn)
-        print("init predictor end!")
-
-        print("init target network!")
-        target_network = ResNetwithProjection(self.config)
-        self.target_network = self.wrap_model(target_network, sync_bn=self.sync_bn)
-        print("init target network end!")
-
-        self.initializes_target_network()
+        print("init byol model!")
+        net = BYOLModel(self.config)
+        if self.sync_bn:
+            net = apex.parallel.convert_syncbn_model(net)
+        self.model = net.to(self.device)
+        print("init byol model end!")
 
         # optimizer
         print("get optimizer!")
         momentum = self.config['optimizer']['momentum']
         weight_decay = self.config['optimizer']['weight_decay']
         exclude_bias_and_bn = self.config['optimizer']['exclude_bias_and_bn']
-        params = params_util.collect_params([self.online_network, self.predictor],
+        params = params_util.collect_params([self.model.online_network, self.model.predictor],
                                             exclude_bias_and_bn=exclude_bias_and_bn)
         self.optimizer = LARS(params, lr=self.max_lr, momentum=momentum, weight_decay=weight_decay)
 
         # amp
         print("amp init!")
-        (self.online_network, self.predictor), self.optimizer = amp.initialize(
-            [self.online_network, self.predictor], self.optimizer, opt_level=self.opt_level)
+        self.model, self.optimizer = amp.initialize(
+            self.model, self.optimizer, opt_level=self.opt_level)
 
         if self.distributed:
-            self.online_network = DDP(self.online_network, delay_allreduce=True)
-            self.predictor = DDP(self.predictor, delay_allreduce=True)
-            self.target_network = DDP(self.target_network, delay_allreduce=True)
-        print("init net end!")
-
-    @torch.no_grad()
-    def initializes_target_network(self):
-        for param_q, param_k in zip(self.online_network.parameters(), self.target_network.parameters()):
-            param_k.data.copy_(param_q.data)  # initialize
-            param_k.requires_grad = False     # not update by gradient
+            self.model = DDP(self.model, delay_allreduce=True)
+        print("amp init end!")
 
     # resume snapshots from pre-train
     def resume_model(self, model_path=None):
@@ -171,24 +147,19 @@ class BYOLTrainer():
             checkpoint = torch.load(BytesIO(model_data), map_location=self.device)
 
             self.start_epoch = checkpoint['epoch']
-            self.online_network.load_state_dict(checkpoint['online_network'], strict=True)
-            self.predictor.load_state_dict(checkpoint['predictor'], strict=True)
-            self.target_network.load_state_dict(checkpoint['target_network'], strict=True)
-            amp.load_state_dict(checkpoint['amp'])
             self.steps = checkpoint['steps']
+            self.model.load_state_dict(checkpoint['model'], strict=True)
             self.optimizer.load_state_dict(checkpoint['optimizer'])
-            self.logging.info(
-                "--> loaded checkpoint '{}' (epoch {})".format(model_path, self.start_epoch))
+            amp.load_state_dict(checkpoint['amp'])
+            self.logging.info(f"--> loaded checkpoint '{model_path}' (epoch {self.start_epoch})")
 
     # save snapshots
     def save_checkpoint(self, epoch):
         if epoch % self.save_epoch == 0 and self.rank == 0:
             state = {'config': self.config,
                      'epoch': epoch,
-                     'online_network': self.online_network.state_dict(),
-                     'predictor': self.predictor.state_dict(),
-                     'target_network': self.target_network.state_dict(),
                      'steps': self.steps,
+                     'model': self.model.state_dict(),
                      'optimizer': self.optimizer.state_dict(),
                      'amp': amp.state_dict()
                      }
@@ -216,24 +187,6 @@ class BYOLTrainer():
     def adjust_mm(self, step):
         self.mm = 1 - (1 - self.base_mm) * (np.cos(np.pi * step / self.total_steps) + 1) / 2
 
-    def switch_train(self):
-        # switch to train mode
-        self.online_network.train()
-        self.predictor.train()
-        self.target_network.train()
-
-    def switch_eval(self):
-        # switch to eval mode
-        self.online_network.eval()
-        self.predictor.eval()
-        self.target_network.eval()
-
-    @torch.no_grad()
-    def update_target_network(self):
-        """Momentum update of target network"""
-        for param_q, param_k in zip(self.online_network.parameters(), self.target_network.parameters()):
-            param_k.data.mul_(self.mm).add_(1. - self.mm, param_q.data)
-
     def forward_loss(self, preds, targets):
         bz = preds.size(0)
         preds_norm = F.normalize(preds, dim=1)
@@ -245,12 +198,13 @@ class BYOLTrainer():
     def train_epoch(self, epoch, printer=print):
         batch_time = eval_util.AverageMeter()
         data_time = eval_util.AverageMeter()
-        online_time = eval_util.AverageMeter()
-        target_time = eval_util.AverageMeter()
+        forward_time = eval_util.AverageMeter()
         backward_time = eval_util.AverageMeter()
         log_time = eval_util.AverageMeter()
-        end = time.time()
 
+        self.model.train()
+
+        end = time.time()
         if self.use_local_dataloader:
             self.data_ins.set_epoch(epoch)
         else:
@@ -265,22 +219,17 @@ class BYOLTrainer():
             self.adjust_learning_rate(self.steps)
             self.adjust_mm(self.steps)
             self.steps += 1
+
             assert images.dim() == 5, f"Input must have 5 dims, got: {images.dim()}"
             view1 = images[:, 0, ...].contiguous()
             view2 = images[:, 1, ...].contiguous()
             # measure data loading time
             data_time.update(time.time() - end)
 
-            # online forward
+            # forward
             tflag = time.time()
-            q = self.predictor(self.online_network(torch.cat([view1, view2], dim=0)))
-            online_time.update(time.time() - tflag)
-
-            # target forward
-            tflag = time.time()
-            with torch.no_grad():
-                target_z = self.target_network(torch.cat([view2, view1], dim=0)).detach().clone()
-            target_time.update(time.time() - tflag)
+            q, target_z = self.model(view1, view2, self.mm)
+            forward_time.update(time.time() - tflag)
 
             tflag = time.time()
             loss = self.forward_loss(q, target_z)
@@ -292,14 +241,13 @@ class BYOLTrainer():
                 with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                     scaled_loss.backward()
             self.optimizer.step()
-
-            self.update_target_network()
             backward_time.update(time.time() - tflag)
 
             tflag = time.time()
             if self.steps % self.log_step == 0:
                 self.logger.update('steps', self.steps)
                 self.logger.update('lr', round(self.optimizer.param_groups[0]['lr'], 5))
+                self.logger.update('mm', round(self.mm, 5))
                 self.logger.update('loss', loss.item(), view1.size(0))
 
                 if self.rank == 0:
@@ -320,8 +268,7 @@ class BYOLTrainer():
                 printer(f'Epoch: [{epoch}][{i}/{len(self.train_loader)}]\t{str(self.logger)}\t'
                         f'Batch Time {batch_time.val:.4f} ({batch_time.avg:.4f})\t'
                         f'Data Time {data_time.val:.4f} ({data_time.avg:.4f})\t'
-                        f'online Time {online_time.val:.4f} ({online_time.avg:.4f})\t'
-                        f'target Time {target_time.val:.4f} ({target_time.avg:.4f})\t'
+                        f'forward Time {forward_time.val:.4f} ({forward_time.avg:.4f})\t'
                         f'backward Time {backward_time.val:.4f} ({backward_time.avg:.4f})\t'
                         f'Log Time {log_time.val:.4f} ({log_time.avg:.4f})\t')
 

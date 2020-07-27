@@ -70,7 +70,7 @@ class OssImageDataset(torch.utils.data.Dataset):
         indices = set(indices[self.rank:total_size:self.num_replicas])
         assert len(indices) == num_samples
 
-        print('Epoch: {}, rank: {}, samples number: {}'.format(self.epoch, self.rank, len(indices)))
+        print(f'Epoch: {self.epoch}, rank: {self.rank}, samples number: {len(indices)}')
 
         pairs = []
         for i, line in enumerate(lines):
@@ -90,7 +90,7 @@ class OssImageDataset(torch.utils.data.Dataset):
                 image = Image.open(self.bucket.get_object(oss_key)).convert('RGB')
                 break
             except:
-                print('oss: {} failed, tried again'.format(oss_key))
+                print(f'oss: {oss_key} failed, tried again')
 
         if self.transform is not None:
             image = self.transform(image)
@@ -148,7 +148,7 @@ class OssImageLoader():
 
     def get_loader(self, stage, batch_size, epoch=0):
         dataset = self.get_dataset(stage, epoch=epoch)
-        print('{} dataset size: {}'.format(stage, len(dataset)))
+        print(f'{stage} dataset size: {len(dataset)}')
 
         data_loader = torch.utils.data.DataLoader(
             dataset=dataset,

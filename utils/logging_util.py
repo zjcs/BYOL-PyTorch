@@ -43,7 +43,7 @@ class log_tool():
         plt.ioff()
         fig = plt.figure(figsize=(12, 10), dpi=180)
         style = 'r*-'
-        plt.plot(self.x, self.y, style, label = '{}_last:{:.2f}'.format(label, self.y[-1]))
+        plt.plot(self.x, self.y, style, label = f'{label}_last:{self.y[-1]:.2f}')
         plt.xlabel(x_label)
         plt.ylabel(y_label)
         plt.xticks(np.arange(0, max(self.x)+0.1, max(self.x)/10))
@@ -77,7 +77,7 @@ class log_tool():
         if not (self.bucket is None or self.log_path == ''):
             fp = BytesIO()
             for idx, s in enumerate(self.step):
-                line = '{} {}\n'.format(s, self.value[idx])
+                line = f'{s} {self.value[idx]}\n'
                 fp.write(line.encode('utf-8'))
             try:
                 self.bucket.put_object(self.log_path, fp.getvalue())
