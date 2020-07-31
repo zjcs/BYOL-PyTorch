@@ -28,3 +28,19 @@ There are a lot of redundant code for OSS loading/saving checkpoint/log files. Y
 4. Increase target model momentum factor with a cosine rule
 5. Exclude `biases` and `batch normalization` parameters from both `LARS adaptation` and `weight decay`
 6. The correct order for model wrapping: `convert_syncbn` -> `cuda` -> `amp.initialize` -> `DDP`
+
+## Reproduced Results
+
+### Linear Evaluation Protocol
+
+Here we demonstrate our reproduced results with hyper parameters in [train_config.yaml](./config/train_config.yaml) using 32 Nvidia V100 (32GB) GPU cards, indicating a global batch size of 4096.
+
+Under this setup, reference accuracies for 300 epochs are 72.5% (top-1) and 90.8% (top-5), as reported in Section F of the paper.
+
+| Train Epoch | Classifier Train Epoch | Classifier LR     | Top-1 ACC | Top-5 ACC |
+|-------------|------------------------|-------------------|-----------|-----------|
+| 100         | 120                    | [1., 0.05]/Cosine | 63.2%     | 85.1%     |
+| 150         | 120                    | [1., 0.05]/Cosine | 66.6%     | 87.6%     |
+| 200         | 120                    | [1., 0.05]/Cosine | 68.8%     | 89.1%     |
+| 250         | 120                    | [1., 0.05]/Cosine | 70.9%     | 90.2%     |
+| 300         | 120                    | [1., 0.05]/Cosine | 71.7%     | 90.8%     |
