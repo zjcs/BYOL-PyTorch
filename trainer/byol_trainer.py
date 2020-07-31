@@ -103,9 +103,9 @@ class BYOLTrainer():
         self.use_local_dataloader = self.config['data']['use_local_dataloader']
         if self.use_local_dataloader:
             self.data_ins = ImageNetLoader(self.config)
-            self.train_loader = self.data_ins.get_loader(self.stage, self.train_batch_size)
         else:
             self.data_ins = OssImageLoader(self.config)
+        self.train_loader = self.data_ins.get_loader(self.stage, self.train_batch_size)
 
         self.sync_bn = self.config['amp']['sync_bn']
         self.opt_level = self.config['amp']['opt_level']
@@ -205,11 +205,7 @@ class BYOLTrainer():
         self.model.train()
 
         end = time.time()
-        if self.use_local_dataloader:
-            self.data_ins.set_epoch(epoch)
-        else:
-            self.train_loader = self.data_ins.get_loader(self.stage,
-                batch_size=self.train_batch_size, epoch=epoch)
+        self.data_ins.set_epoch(epoch)
 
         prefetcher = data_prefetcher(self.train_loader)
         images, _ = prefetcher.next()

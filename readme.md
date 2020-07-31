@@ -33,7 +33,7 @@ There are a lot of redundant code for OSS loading/saving checkpoint/log files. Y
 
 ### Linear Evaluation Protocol
 
-Here we demonstrate our reproduced results with hyper parameters in [train_config.yaml](./config/train_config.yaml) using 32 Nvidia V100 (32GB) GPU cards, indicating a global batch size of 4096.
+Here we post our reproduced results with hyper parameters in [train_config.yaml](./config/train_config.yaml) using 32x Nvidia V100 (32GB) GPU cards, indicating a global batch size of 4096.
 
 Under this setup, reference accuracies for 300 epochs are 72.5% (top-1) and 90.8% (top-5), as reported in Section F of the paper.
 

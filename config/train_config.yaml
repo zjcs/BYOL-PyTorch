@@ -27,10 +27,8 @@ data:
   val_batch_size: 64
   dual_views: true
   # for oss
-  train_root: "imagenet/imagenet_train/"
-  val_root: "imagenet/imagenet_val/"
-  train_list: "imagenet/imagenet_train.txt"
-  val_list: "imagenet/imagenet_val.txt"
+  train_list: "imagenet/imagenet_train_fullpath.txt"
+  val_list: "imagenet/imagenet_val_fullpath.txt"
   endpoint:
   key_id:
   secret_id:
