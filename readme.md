@@ -18,12 +18,12 @@ This repo supposes using `torch.distributed.launch` to start training, for examp
 python -m torch.distributed.launch --nproc_per_node=2 --nnodes=2 --node_rank=0 --master_addr="" --master_port=12345 byol_main.py
 ```
 
-There are a lot of redundant code for OSS loading/saving checkpoint/log files. You can simply them to local storage.
+There are a lot of redundant code for [OSS](https://cn.aliyun.com/product/oss) loading/saving checkpoint/log files. You can simply them to local storage.
 
 ## Implementation Details
 
 1. Use `apex` or `pytorch>=1.4.0` for `SyncBatchNorm`
-2. **Pay attention to the data augmentation**, which is slightly different from those in SimCLR, especially the probability of applying `GaussianBlur` and `Solarization` for different views (see Table 6 of the paper)
+2. **Pay attention to the data augmentations**, which are slightly different from those in SimCLR, especially the probability of applying `GaussianBlur` and `Solarization` for different views (see Table 6 of the paper)
 3. In both training and evaluation, they normalize color channels by subtracting the average color and dividing by the standard deviation, computed on ImageNet, after applying the augmentations (even with the specially designed augmentations)
 4. Increase target model momentum factor with a cosine rule
 5. Exclude `biases` and `batch normalization` parameters from both `LARS adaptation` and `weight decay`
